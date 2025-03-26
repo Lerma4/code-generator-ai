@@ -2,82 +2,162 @@ package main
 
 import (
 	"fmt"
-	"os" // Necessario per os.Exit in caso di errore
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	// Potresti voler importare anche lipgloss per lo stile in futuro:
-	// "github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// Il 'model' rappresenta lo stato della tua applicazione TUI.
-// Per ora è semplice, ma qui aggiungerai i dati che la tua UI deve gestire.
-type model struct {
-	// Esempio: potresti aggiungere campi come cursor int, choices []string, ecc.
+type ModelTemplate struct {
+	Name        string
+	Description string
 }
+
+// Il 'model' rappresenta lo stato della tua applicazione TUI.
+type model struct {
+	templates    []ModelTemplate
+	cursor       int
+	selected     bool
+	selectedItem int
+}
+
+var (
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#7D56F4")).
+			PaddingLeft(4).
+			PaddingRight(4).
+			MarginBottom(1)
+
+	infoStyle = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(lipgloss.Color("#ABABAB"))
+
+	exitHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF5555"))
+
+	selectedItemStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(lipgloss.Color("#7D56F4")).
+				Bold(true)
+
+	itemStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#DDDDDD"))
+)
 
 // initialModel crea e restituisce lo stato iniziale del tuo modello.
 func initialModel() model {
 	return model{
-		// Qui puoi inizializzare i campi del tuo modello, se necessario.
+		templates: []ModelTemplate{
+			{Name: "model1", Description: "Modello base per applicazioni web"},
+			{Name: "model2", Description: "Modello per API REST"},
+			{Name: "model3", Description: "Modello per applicazioni CLI"},
+			{Name: "model4", Description: "Modello per microservizi"},
+		},
+		cursor:       0,
+		selected:     false,
+		selectedItem: -1,
 	}
 }
 
 // Init è un comando (Cmd) da eseguire all'avvio dell'applicazione.
-// Spesso è nil se non devi fare nulla di speciale all'inizio (es. caricare dati).
 func (m model) Init() tea.Cmd {
-	return nil // Nessun comando iniziale per ora
+	return nil
 }
 
 // Update gestisce i messaggi (Msg) in arrivo, come input da tastiera, timer, ecc.
-// Restituisce il modello aggiornato e un eventuale comando successivo da eseguire.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
-	// È un messaggio dalla tastiera?
 	case tea.KeyMsg:
-		// Controlla quale tasto è stato premuto.
 		switch msg.String() {
-		// Se viene premuto 'ctrl+c' o 'q', esci dal programma.
 		case "ctrl+c", "q":
-			return m, tea.Quit // tea.Quit è il comando per terminare Bubble Tea
+			return m, tea.Quit
 
-			// Qui potresti aggiungere la gestione per altri tasti:
-			// case "up", "k":
-			//   // Logica per muovere su
-			// case "down", "j":
-			//   // Logica per muovere giù
-			// case "enter":
-			//   // Logica per confermare
+		case "up", "k":
+			if !m.selected && m.cursor > 0 {
+				m.cursor--
+			}
+
+		case "down", "j":
+			if !m.selected && m.cursor < len(m.templates)-1 {
+				m.cursor++
+			}
+
+		case "enter":
+			if !m.selected {
+				m.selected = true
+				m.selectedItem = m.cursor
+			}
+            
+		case "esc", "backspace":
+			if m.selected {
+				m.selected = false
+			}
 		}
 	}
 
-	// Se il messaggio non è stato gestito, restituisci il modello corrente e nessun comando.
 	return m, nil
 }
 
 // View genera la stringa che rappresenta la UI visualizzata nel terminale,
 // basandosi sullo stato corrente del modello.
 func (m model) View() string {
-	// Costruisci la stringa della tua UI.
-	s := "Ciao da Bubble Tea!\n\n"
-	s += "Premi 'q' o 'Ctrl+C' per uscire.\n"
+	if m.selected {
+		title := titleStyle.Render("Modello Selezionato")
+		selectedModel := fmt.Sprintf("Hai selezionato: %s", m.templates[m.selectedItem].Description)
+		info := infoStyle.Render("Ora puoi procedere con la generazione del codice")
+		backHint := infoStyle.Render("Premi 'ESC' o 'Backspace' per tornare alla selezione")
+		exitHint := exitHintStyle.Render("Premi 'q' o 'Ctrl+C' per uscire.")
 
-	// Qui aggiungerai la logica per visualizzare lo stato del tuo modello 'm'.
-	// Potresti usare Lip Gloss qui per lo stile.
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			selectedModel,
+			"",
+			info,
+			backHint,
+			"",
+			exitHint,
+		)
+	}
 
-	// Restituisci la stringa finale.
-	return s
+	// Mostra la lista di selezione
+	title := titleStyle.Render("Seleziona un Modello")
+
+	// Costruisci la lista di elementi
+	var items []string
+	for i, t := range m.templates {
+		item := fmt.Sprintf("%s - %s", t.Name, t.Description)
+
+		if i == m.cursor {
+			items = append(items, selectedItemStyle.Render("> "+item))
+		} else {
+			items = append(items, itemStyle.Render("  "+item))
+		}
+	}
+
+	list := lipgloss.JoinVertical(lipgloss.Left, items...)
+	info := infoStyle.Render("Usa le frecce su/giù per navigare e premi Enter per selezionare")
+	exitHint := exitHintStyle.Render("Premi 'q' o 'Ctrl+C' per uscire.")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		list,
+		"",
+		info,
+		"",
+		exitHint,
+	)
 }
 
 // main è il punto di ingresso del programma.
 func main() {
-	// Crea il programma Bubble Tea passando il modello iniziale.
 	p := tea.NewProgram(initialModel())
 
-	// Esegui il programma. Run() bloccherà finché non viene restituito tea.Quit.
-	// Catturiamo eventuali errori durante l'esecuzione.
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Si è verificato un errore durante l'esecuzione: %v\n", err)
-		os.Exit(1) // Esci se c'è stato un errore
+		os.Exit(1)
 	}
 }
