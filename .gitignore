@@ -1,0 +1,49 @@
+# === Go ===
+# Eseguibili compilati (adatta il nome se necessario, o usa /bin/ o /build/)
+# Se il tuo eseguibile si chiama come la directory del modulo:
+/<nome_modulo_o_eseguibile>
+# Se compili per Windows:
+*.exe
+*.exe~
+
+# File di copertura dei test
+*.out
+*.cover
+coverage.html
+
+# Directory delle dipendenze (vendor) - Decommenta SE NON usi Go Modules o se vuoi escluderla esplicitamente
+# vendor/
+
+# File di log generici
+*.log
+
+# === IDE JetBrains (GoLand, IntelliJ IDEA) ===
+# Copre le directory di configurazione specifiche del progetto e dell'utente
+.idea/
+
+# File specifici dei moduli di IntelliJ (se non sono gestiti correttamente nelle impostazioni IDE)
+*.iml
+
+# === Visual Studio Code (VS Code) ===
+# Copre la directory delle impostazioni specifiche del workspace
+# Potresti voler NON ignorare .vscode/extensions.json se vuoi consigliare estensioni
+# Potresti voler NON ignorare .vscode/settings.json se hai impostazioni condivise di progetto
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json # Decommenta questa riga SE vuoi versionare le impostazioni condivise
+
+# === File specifici del Sistema Operativo ===
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux / Editor vari
+*~
+*.swp
+*.swo
