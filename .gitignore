@@ -47,3 +47,8 @@ Desktop.ini
 *~
 *.swp
 *.swo
+
+# === Altri ===
+config.json
+logger
+templates
