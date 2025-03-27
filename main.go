@@ -9,8 +9,7 @@ import (
 )
 
 type ModelTemplate struct {
-	Name        string
-	Description string
+	Name string
 }
 
 // Il 'model' rappresenta lo stato della tua applicazione TUI.
@@ -47,14 +46,30 @@ var (
 )
 
 // initialModel crea e restituisce lo stato iniziale del tuo modello.
+func getTemplatesFromDirectory() []ModelTemplate {
+	templates := []ModelTemplate{}
+	templateDir := "templates"
+
+	entries, err := os.ReadDir(templateDir)
+	if err != nil {
+		return templates
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			templates = append(templates, ModelTemplate{
+				Name: entry.Name(),
+			})
+		}
+	}
+
+	return templates
+}
+
+// Update initialModel to use the new function
 func initialModel() model {
 	return model{
-		templates: []ModelTemplate{
-			{Name: "model1", Description: "Modello base per applicazioni web"},
-			{Name: "model2", Description: "Modello per API REST"},
-			{Name: "model3", Description: "Modello per applicazioni CLI"},
-			{Name: "model4", Description: "Modello per microservizi"},
-		},
+		templates:    getTemplatesFromDirectory(),
 		cursor:       0,
 		selected:     false,
 		selectedItem: -1,
@@ -89,7 +104,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = true
 				m.selectedItem = m.cursor
 			}
-            
+
 		case "esc", "backspace":
 			if m.selected {
 				m.selected = false
@@ -103,9 +118,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View genera la stringa che rappresenta la UI visualizzata nel terminale,
 // basandosi sullo stato corrente del modello.
 func (m model) View() string {
+	// Check if there are no templates
+	if len(m.templates) == 0 {
+		title := titleStyle.Render("Seleziona un Modello")
+		noTemplates := infoStyle.Render("Nessun template rilevato")
+		exitHint := exitHintStyle.Render("Premi 'q' o 'Ctrl+C' per uscire.")
+
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			noTemplates,
+			"",
+			exitHint,
+		)
+	}
+
 	if m.selected {
 		title := titleStyle.Render("Modello Selezionato")
-		selectedModel := fmt.Sprintf("Hai selezionato: %s", m.templates[m.selectedItem].Description)
+		selectedModel := fmt.Sprintf("Hai selezionato: %s", m.templates[m.selectedItem].Name)
 		info := infoStyle.Render("Ora puoi procedere con la generazione del codice")
 		backHint := infoStyle.Render("Premi 'ESC' o 'Backspace' per tornare alla selezione")
 		exitHint := exitHintStyle.Render("Premi 'q' o 'Ctrl+C' per uscire.")
@@ -126,14 +157,13 @@ func (m model) View() string {
 	title := titleStyle.Render("Seleziona un Modello")
 
 	// Costruisci la lista di elementi
+	// Update the list items generation
 	var items []string
 	for i, t := range m.templates {
-		item := fmt.Sprintf("%s - %s", t.Name, t.Description)
-
 		if i == m.cursor {
-			items = append(items, selectedItemStyle.Render("> "+item))
+			items = append(items, selectedItemStyle.Render("> "+t.Name))
 		} else {
-			items = append(items, itemStyle.Render("  "+item))
+			items = append(items, itemStyle.Render("  "+t.Name))
 		}
 	}
 
