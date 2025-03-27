@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
-	"code-generator-ai/logger"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -170,39 +172,40 @@ func callGeminiAPI(prompt string) tea.Cmd {
 		config, err := loadConfig()
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error loading config: %v", err)
-			logger.LogError(errorMsg)
+			log.Error().Msg(errorMsg)
 			return apiResponseMsg{err: fmt.Errorf(errorMsg)}
 		}
 
 		// Log API call attempt
-		logger.LogError(fmt.Sprintf("Attempting API call to Gemini with model: %s", config.Gemini.ModelName))
-		logger.LogError(fmt.Sprintf("Prompt length: %d characters", len(prompt)))
+		log.Info().
+			Str("model", config.Gemini.ModelName).
+			Int("promptLength", len(prompt)).
+			Msg("Attempting API call to Gemini")
 
 		// Create a new client
 		ctx := context.Background()
 		client, err := genai.NewClient(ctx, option.WithAPIKey(config.Gemini.APIKey))
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error creating Gemini client: %v", err)
-			logger.LogError(errorMsg)
+			log.Error().Err(err).Msg("Failed to create Gemini client")
 			return apiResponseMsg{err: fmt.Errorf(errorMsg)}
 		}
 		defer client.Close()
 
 		// Get the model
 		model := client.GenerativeModel(config.Gemini.ModelName)
-		logger.LogError("Created Gemini client and model successfully")
+		log.Info().Msg("Created Gemini client and model successfully")
 
 		// Generate content
-		logger.LogError("Sending request to Gemini API...")
+		log.Info().Msg("Sending request to Gemini API...")
 		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 		if err != nil {
-			errorMsg := fmt.Sprintf("Error generating content: %v", err)
-			logger.LogError(errorMsg)
-			return apiResponseMsg{err: fmt.Errorf(errorMsg)}
+			log.Error().Err(err).Msg("Error generating content")
+			return apiResponseMsg{err: fmt.Errorf("Error generating content: %v", err)}
 		}
 
 		// Log response details
-		logger.LogError(fmt.Sprintf("Response received with %d candidates", len(resp.Candidates)))
+		log.Info().Int("candidates", len(resp.Candidates)).Msg("Response received")
 
 		// Extract text from response
 		if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
@@ -210,22 +213,23 @@ func callGeminiAPI(prompt string) tea.Cmd {
 			part := resp.Candidates[0].Content.Parts[0]
 			responseText, ok := part.(genai.Text)
 			if !ok {
-				errorMsg := "Failed to convert response part to text"
-				logger.LogError(errorMsg)
-				return apiResponseMsg{err: fmt.Errorf(errorMsg)}
+				log.Error().Msg("Failed to convert response part to text")
+				return apiResponseMsg{err: fmt.Errorf("Failed to convert response part to text")}
 			}
 
-			logger.LogError(fmt.Sprintf("Successfully received response with %d characters", len(string(responseText))))
+			log.Info().Int("responseLength", len(string(responseText))).Msg("Successfully received response")
 			return apiResponseMsg{response: string(responseText)}
 		}
 
-		errorMsg := "No response from API: empty candidates or parts"
-		logger.LogError(errorMsg)
-		logger.LogError(fmt.Sprintf("Response structure: candidates=%d", len(resp.Candidates)))
+		log.Error().
+			Int("candidates", len(resp.Candidates)).
+			Msg("No response from API: empty candidates or parts")
+		
 		if len(resp.Candidates) > 0 {
-			logger.LogError(fmt.Sprintf("First candidate parts: %d", len(resp.Candidates[0].Content.Parts)))
+			log.Error().Int("firstCandidateParts", len(resp.Candidates[0].Content.Parts)).Msg("Response structure details")
 		}
-		return apiResponseMsg{err: fmt.Errorf(errorMsg)}
+		
+		return apiResponseMsg{err: fmt.Errorf("No response from API: empty candidates or parts")}
 	}
 }
 
@@ -241,11 +245,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			errorMsg := fmt.Sprintf("API Error: %v", msg.err)
-			logger.LogError(errorMsg)
+			log.Error().Err(msg.err).Msg("API Error")
 			m.errorMsg = errorMsg
 			m.selected = false
 		} else {
-			logger.LogError(fmt.Sprintf("API call successful, received %d characters", len(msg.response)))
+			log.Info().Int("responseLength", len(msg.response)).Msg("API call successful")
 			m.apiResponse = msg.response
 		}
 		return m, nil
@@ -275,27 +279,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					templateDir := filepath.Join("templates", m.templates[m.selectedItem].Name)
 					promptFile := filepath.Join(templateDir, "prompt.txt")
 
-					logger.LogError(fmt.Sprintf("Attempting to use template: %s", m.templates[m.selectedItem].Name))
-					logger.LogError(fmt.Sprintf("Looking for prompt file at: %s", promptFile))
+					log.Info().
+						Str("template", m.templates[m.selectedItem].Name).
+						Str("promptFile", promptFile).
+						Msg("Attempting to use template")
 
 					if _, err := os.Stat(promptFile); os.IsNotExist(err) {
 						errorMsg := fmt.Sprintf("Il file prompt.txt non esiste in %s", templateDir)
-						logger.LogError(errorMsg)
+						log.Error().Str("templateDir", templateDir).Msg("prompt.txt file not found")
 						m.errorMsg = errorMsg
 						m.selected = false
 					} else {
 						m.errorMsg = ""
-						logger.LogError("Found prompt.txt file, attempting to read")
+						log.Info().Msg("Found prompt.txt file, attempting to read")
 
 						// Read prompt.txt content
 						promptContent, err := os.ReadFile(promptFile)
 						if err != nil {
 							errorMsg := fmt.Sprintf("Errore nella lettura di prompt.txt: %v", err)
-							logger.LogError(errorMsg)
+							log.Error().Err(err).Msg("Error reading prompt.txt")
 							m.errorMsg = errorMsg
 							m.selected = false
 						} else {
-							logger.LogError(fmt.Sprintf("Successfully read prompt.txt (%d bytes)", len(promptContent)))
+							log.Info().Int("bytes", len(promptContent)).Msg("Successfully read prompt.txt")
 							// Call Gemini API with prompt content
 							m.loading = true
 							return m, callGeminiAPI(string(promptContent))
@@ -413,11 +419,36 @@ func (m model) View() string {
 
 // main è il punto di ingresso del programma.
 func main() {
+	// Configure zerolog
+	zerolog.TimeFieldFormat = time.RFC3339 // Use RFC3339 format (YYYY-MM-DDTHH:MM:SSZ)
+	
+	// Create logs directory if it doesn't exist
+	logsDir := "logs"
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		fmt.Printf("Failed to create logs directory: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Get current date in American format (YYYY-MM-DD)
+	currentDate := time.Now().Format("2006-01-02")
+	logFileName := filepath.Join(logsDir, currentDate+".log")
+	
+	// Open log file
+	logFile, err := os.OpenFile(logFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("Failed to open log file: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Set up logger to write only to file (no console output)
+	log.Logger = zerolog.New(logFile).With().Timestamp().Logger()
+	
+	log.Info().Msg("Application starting")
+	
 	p := tea.NewProgram(initialModel())
 
 	if _, err := p.Run(); err != nil {
-		errorMsg := fmt.Sprintf("Application error: %v", err)
-		logger.LogError(errorMsg)
+		log.Error().Err(err).Msg("Application error")
 		fmt.Printf("Si è verificato un errore durante l'esecuzione: %v\n", err)
 		os.Exit(1)
 	}
