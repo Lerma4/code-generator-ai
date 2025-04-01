@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,32 +11,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+
+	"code-generator-ai/api"
+	"code-generator-ai/api/models"
 )
-
-// Add config structures
-type Config struct {
-	Database DatabaseConfig `json:"database"`
-	Gemini   GeminiConfig   `json:"gemini"`
-}
-
-type DatabaseConfig struct {
-	Driver          string `json:"driver"`
-	Host            string `json:"host"`
-	Port            int    `json:"port"`
-	Username        string `json:"username"`
-	Password        string `json:"password"`
-	DBName          string `json:"dbname"`
-	MaxOpenConns    int    `json:"max_open_conns"`
-	MaxIdleConns    int    `json:"max_idle_conns"`
-	ConnMaxLifetime int    `json:"conn_max_lifetime"`
-}
-
-type GeminiConfig struct {
-	APIKey    string `json:"api_key"`
-	ModelName string `json:"model_name"`
-}
 
 type ModelTemplate struct {
 	Name string
@@ -129,128 +105,18 @@ func (m model) Init() tea.Cmd {
 }
 
 // Update gestisce i messaggi (Msg) in arrivo, come input da tastiera, timer, ecc.
-// GeminiRequest represents the request structure for Gemini API
-type GeminiRequest struct {
-	Contents []GeminiContent `json:"contents"`
-}
-
-type GeminiContent struct {
-	Parts []GeminiPart `json:"parts"`
-}
-
-type GeminiPart struct {
-	Text string `json:"text"`
-}
-
-// GeminiResponse represents the response structure from Gemini API
-type GeminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"content"`
-	} `json:"candidates"`
-}
-
-// Function to load configuration
-func loadConfig() (Config, error) {
-	var config Config
-	configFile, err := os.ReadFile("config.json")
-	if err != nil {
-		return config, err
-	}
-
-	err = json.Unmarshal(configFile, &config)
-	return config, err
-}
-
-// Function to call Gemini API using the official client
-func callGeminiAPI(prompt string) tea.Cmd {
-	return func() tea.Msg {
-		// Load config
-		config, err := loadConfig()
-		if err != nil {
-			errorMsg := fmt.Sprintf("Error loading config: %v", err)
-			log.Error().Msg(errorMsg)
-			return apiResponseMsg{err: fmt.Errorf(errorMsg)}
-		}
-
-		// Log API call attempt
-		log.Info().
-			Str("model", config.Gemini.ModelName).
-			Int("promptLength", len(prompt)).
-			Msg("Attempting API call to Gemini")
-
-		// Create a new client
-		ctx := context.Background()
-		client, err := genai.NewClient(ctx, option.WithAPIKey(config.Gemini.APIKey))
-		if err != nil {
-			errorMsg := fmt.Sprintf("Error creating Gemini client: %v", err)
-			log.Error().Err(err).Msg("Failed to create Gemini client")
-			return apiResponseMsg{err: fmt.Errorf(errorMsg)}
-		}
-		defer client.Close()
-
-		// Get the model
-		model := client.GenerativeModel(config.Gemini.ModelName)
-		log.Info().Msg("Created Gemini client and model successfully")
-
-		// Generate content
-		log.Info().Msg("Sending request to Gemini API...")
-		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-		if err != nil {
-			log.Error().Err(err).Msg("Error generating content")
-			return apiResponseMsg{err: fmt.Errorf("Error generating content: %v", err)}
-		}
-
-		// Log response details
-		log.Info().Int("candidates", len(resp.Candidates)).Msg("Response received")
-
-		// Extract text from response
-		if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
-			// The genai library uses a different structure, so we need to extract the text differently
-			part := resp.Candidates[0].Content.Parts[0]
-			responseText, ok := part.(genai.Text)
-			if !ok {
-				log.Error().Msg("Failed to convert response part to text")
-				return apiResponseMsg{err: fmt.Errorf("Failed to convert response part to text")}
-			}
-
-			log.Info().Int("responseLength", len(string(responseText))).Msg("Successfully received response")
-			return apiResponseMsg{response: string(responseText)}
-		}
-
-		log.Error().
-			Int("candidates", len(resp.Candidates)).
-			Msg("No response from API: empty candidates or parts")
-		
-		if len(resp.Candidates) > 0 {
-			log.Error().Int("firstCandidateParts", len(resp.Candidates[0].Content.Parts)).Msg("Response structure details")
-		}
-		
-		return apiResponseMsg{err: fmt.Errorf("No response from API: empty candidates or parts")}
-	}
-}
-
-// Message type for API response
-type apiResponseMsg struct {
-	response string
-	err      error
-}
-
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case apiResponseMsg:
+	case models.ResponseMsg:
 		m.loading = false
-		if msg.err != nil {
-			errorMsg := fmt.Sprintf("API Error: %v", msg.err)
-			log.Error().Err(msg.err).Msg("API Error")
+		if msg.Err != nil {
+			errorMsg := fmt.Sprintf("API Error: %v", msg.Err)
+			log.Error().Err(msg.Err).Msg("API Error")
 			m.errorMsg = errorMsg
 			m.selected = false
 		} else {
-			log.Info().Int("responseLength", len(msg.response)).Msg("API call successful")
-			m.apiResponse = msg.response
+			log.Info().Int("responseLength", len(msg.Response)).Msg("API call successful")
+			m.apiResponse = msg.Response
 		}
 		return m, nil
 
@@ -302,9 +168,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.selected = false
 						} else {
 							log.Info().Int("bytes", len(promptContent)).Msg("Successfully read prompt.txt")
-							// Call Gemini API with prompt content
+
+							// Load config
+							config, err := api.LoadConfig()
+							if err != nil {
+								errorMsg := fmt.Sprintf("Error loading config: %v", err)
+								log.Error().Msg(errorMsg)
+								m.errorMsg = errorMsg
+								m.selected = false
+								return m, nil
+							}
+
+							// Get the appropriate model client
+							// For now, we're hardcoding "gemini" as the model name
+							client, err := models.GetModelClient("gemini", config)
+							if err != nil {
+								errorMsg := fmt.Sprintf("Error getting model client: %v", err)
+								log.Error().Msg(errorMsg)
+								m.errorMsg = errorMsg
+								m.selected = false
+								return m, nil
+							}
+
+							// Call the model API with prompt content
 							m.loading = true
-							return m, callGeminiAPI(string(promptContent))
+							return m, client.GenerateContent(string(promptContent))
 						}
 					}
 				}
@@ -421,30 +309,30 @@ func (m model) View() string {
 func main() {
 	// Configure zerolog
 	zerolog.TimeFieldFormat = time.RFC3339 // Use RFC3339 format (YYYY-MM-DDTHH:MM:SSZ)
-	
+
 	// Create logs directory if it doesn't exist
 	logsDir := "logs"
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		fmt.Printf("Failed to create logs directory: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Get current date in American format (YYYY-MM-DD)
 	currentDate := time.Now().Format("2006-01-02")
 	logFileName := filepath.Join(logsDir, currentDate+".log")
-	
+
 	// Open log file
 	logFile, err := os.OpenFile(logFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Printf("Failed to open log file: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Set up logger to write only to file (no console output)
 	log.Logger = zerolog.New(logFile).With().Timestamp().Logger()
-	
+
 	log.Info().Msg("Application starting")
-	
+
 	p := tea.NewProgram(initialModel())
 
 	if _, err := p.Run(); err != nil {
